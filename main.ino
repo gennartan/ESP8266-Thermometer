@@ -6,6 +6,9 @@
 
 byte pin = 0;
 
+/*
+* Network name and password
+*/
 char ssid[] = "";
 char pass[] = "";
 
@@ -14,16 +17,23 @@ MqttClient mqttClient(wifiClient);
 
 const char broker[] = "192.168.1.35";
 int        port     = 1883;
+// TODO: generate topic with board or sensor unique ID
 const char topic[]  = "arduino/simple";
 
+// Interval between two measures (in milliseconds)
 const unsigned long interval = 1000*5;
 
+/*
+ * getTemp
+ * get temperature for a sensor connected to pin _pin_
+ */
 float getTemp(byte pin)
 {
   OneWire ds(0);
   byte i;
   byte present;
   byte data[12];
+  // TODO: automatically discover sensor address
   byte addr[] = {40, 253, 8, 197, 22, 33, 1, 96};
   float celsius;
 
