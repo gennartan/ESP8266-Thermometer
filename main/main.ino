@@ -1,16 +1,18 @@
-//#define DEBUG
+#define DEBUG
 
 #include <OneWire.h>
 #include <ArduinoMqttClient.h>
 #include <ESP8266WiFi.h>
 
-byte pin = 0;
+#include "global_variables.h"
+
+#define PIN 0
 
 /*
 * Network name and password
 */
-char ssid[] = "";
-char pass[] = "";
+char ssid[] = SSID;
+char pass[] = PASS;
 
 WiFiClient wifiClient;
 MqttClient mqttClient(wifiClient);
@@ -18,23 +20,37 @@ MqttClient mqttClient(wifiClient);
 const char broker[] = "192.168.1.35";
 int        port     = 1883;
 // TODO: generate topic with board or sensor unique ID
-const char topic[]  = "arduino/simple";
+char topic[64];
+
+OneWire ds(PIN);
+byte addr[8];
+char board_uid[32];
 
 // Interval between two measures (in milliseconds)
 const unsigned long interval = 1000*5;
 
+void setupAddressAndBoardUID()
+{
+  while (!ds.search(addr) ) {
+    #ifdef DEBUG
+      Serial.println("No addresses found");
+    #endif
+    delay(1000);
+  }
+  sprintf(board_uid, "%02X%02X%02X%02X%02X%02X%02X%02X", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7]);
+  sprintf(topic, "%s/temperature", board_uid);
+}
 /*
  * getTemp
  * get temperature for a sensor connected to pin _pin_
  */
-float getTemp(byte pin)
+float getTemp()
 {
-  OneWire ds(0);
   byte i;
   byte present;
   byte data[12];
   // TODO: automatically discover sensor address
-  byte addr[] = {40, 253, 8, 197, 22, 33, 1, 96};
+  
   float celsius;
 
   if (OneWire::crc8(addr, 7) != addr[7]) {
@@ -76,13 +92,13 @@ float getTemp(byte pin)
   return celsius;
 }
 
-
-
 void setup() {
   // put your setup code here, to run once:
   #ifdef DEBUG
     Serial.begin(115200);
   #endif
+
+  setupAddressAndBoardUID();
 
   while (WiFi.begin(ssid, pass) != WL_CONNECTED) {
     // failed, retry
@@ -111,7 +127,7 @@ void loop() {
   if (currentMillis - previousMillis >= interval) {
     previousMillis = currentMillis;
 
-    float temp = getTemp(pin);
+    float temp = getTemp();
     mqttClient.beginMessage(topic);
     mqttClient.print(temp);
     mqttClient.endMessage();
