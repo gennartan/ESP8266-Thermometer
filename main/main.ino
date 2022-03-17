@@ -1,12 +1,14 @@
-// #define DEBUG
+#define DEBUG
 
 #include <OneWire.h>
 #include <ArduinoMqttClient.h>
 #include <ESP8266WiFi.h>
+#include <MQ135.h>
 
 #include "global_variables.h"
 
 #define PIN 0
+#define PIN_MQ135 A0
 
 /*
 * Network name and password
@@ -20,26 +22,38 @@ MqttClient mqttClient(wifiClient);
 const char broker[] = "192.168.1.35";
 int        port     = 1883;
 // TODO: generate topic with board or sensor unique ID
-char topic[64];
+char topic_temperature[64];
+char topic_mq135[64];
 
 OneWire ds(PIN);
 byte addr[8];
-char board_uid[32];
+char board_uid[32] = "default_uid";
+
+MQ135 mq135_sensor(PIN_MQ135);
+
 
 // Interval between two measures (in milliseconds)
 const unsigned long interval = 1000*5;
 
-void setupAddressAndBoardUID()
+int setupTemp()
 {
-  while (!ds.search(addr) ) {
-    #ifdef DEBUG
-      Serial.println("No addresses found");
-    #endif
-    delay(1000);
+  if (ds.search(addr) ) {
+    sprintf(board_uid, "%02X%02X%02X%02X%02X%02X%02X%02X", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7]);
+    sprintf(topic_temperature, "%s/temperature", board_uid);
+    return 1;
+  } else {
+    sprintf(board_uid, "test_uid");
+    sprintf(topic_temperature, "%s/temperature", board_uid);
+    return 0;
   }
-  sprintf(board_uid, "%02X%02X%02X%02X%02X%02X%02X%02X", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7]);
-  sprintf(topic, "%s/temperature", board_uid);
 }
+
+int setupMQ135()
+{
+  sprintf(topic_mq135, "%s/airQuality", board_uid);
+  return 1;
+}
+
 /*
  * getTemp
  * get temperature for a sensor connected to pin _pin_
@@ -92,13 +106,43 @@ float getTemp()
   return celsius;
 }
 
+float getAirQuality(float temperature, float humidity)
+{
+  float rzero = mq135_sensor.getRZero();
+  float correctedRZero = mq135_sensor.getCorrectedRZero(temperature, humidity);
+  float resistance = mq135_sensor.getResistance();
+  float ppm = mq135_sensor.getPPM();
+  float correctedPPM = mq135_sensor.getCorrectedPPM(temperature, humidity);
+
+#ifdef DEBUG
+  Serial.print("MQ135 RZero: ");
+  Serial.print(rzero);
+  Serial.print("\t Corrected RZero: ");
+  Serial.print(correctedRZero);
+  Serial.print("\t Resistance: ");
+  Serial.print(resistance);
+  Serial.print("\t PPM: ");
+  Serial.print(ppm);
+  Serial.print("\t Corrected PPM: ");
+  Serial.print(correctedPPM);
+  Serial.println("ppm");
+#endif
+
+
+  return correctedPPM;
+}
+
+int is_temp_setup = 0;
+int is_mq135_setup = 0;
+
 void setup() {
   // put your setup code here, to run once:
   #ifdef DEBUG
     Serial.begin(115200);
   #endif
 
-  setupAddressAndBoardUID();
+  is_temp_setup = setupTemp();
+  is_mq135_setup = setupMQ135();
 
   while (WiFi.begin(ssid, pass) != WL_CONNECTED) {
     // failed, retry
@@ -128,8 +172,13 @@ void loop() {
     previousMillis = currentMillis;
 
     float temp = getTemp();
-    mqttClient.beginMessage(topic);
+    mqttClient.beginMessage(topic_temperature);
     mqttClient.print(temp);
+    mqttClient.endMessage();
+
+    float ppm = getAirQuality(21, 50);
+    mqttClient.beginMessage(topic_mq135);
+    mqttClient.print(ppm);
     mqttClient.endMessage();
   }
   delay(5000);
